@@ -15,7 +15,7 @@ bool canDataReceived = false; // флаг для обработки прерыв
 
 #define DATA_LIMIT 8
 
-// струтура хранения данных CAN-пакета
+// структура хранения данных CAN-пакета
 struct CANFrame
 {
   uint32_t ID;                // идентификатор пакета
