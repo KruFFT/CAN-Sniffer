@@ -1,2 +1,2 @@
 # CAN Sniffer
-CAN bus sniffer (Arduino part)
+CAN bus sniffer (Arduino side)
