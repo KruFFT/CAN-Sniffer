@@ -1,6 +1,10 @@
-// Версия 1.0
+// Версия 1.2
+
+// 2022.03.12 версия 1.2 - обновление библиотеки CAN-BUS Shield до версии 2.3.1
+// 2020.06.13 версия 1.1 - добавил очистку фильтров в setup()
+
 #include <SPI.h>
-#include "mcp_can.h"
+#include "mcp2515_can.h"
 
 // Шилд подключен следущим образом:
 // CS   - DI10
@@ -48,7 +52,7 @@ uint32_t counterTime = millis();
 
 //###################################################################################################################################
 // инициализировать CAN-адаптер
-MCP_CAN CAN(SPI_CS_PIN);
+mcp2515_can CAN(SPI_CS_PIN);
 
 //###################################################################################################################################
 // Инициализация
@@ -71,22 +75,23 @@ void setup()
     delay(100);
   }
 
-  // очистка фильтров
-  /*byte std = 0;
-    byte ext = 1;
-    int ulMask = 0x00, ulFilt = 0x00;
+  // типы фильтров
+  #define std 0
+  #define ext 1
 
-    // очистка масок
-    CAN.init_Mask(0, ext, ulMask);
-    CAN.init_Mask(1, ext, ulMask);
+  // сброс фильтров
+  //CAN.init_Filt(0, std, 0x180);
+  CAN.init_Filt(0, std, 0x0);
+  CAN.init_Filt(1, std, 0x0);
+  CAN.init_Filt(2, std, 0x0);
+  CAN.init_Filt(3, std, 0x0);
+  CAN.init_Filt(4, std, 0x0);
+  CAN.init_Filt(5, std, 0x0);
 
-    // сброс фильтров
-    CAN.init_Filt(0, ext, ulFilt);
-    CAN.init_Filt(1, std, ulFilt);
-    CAN.init_Filt(2, ext, ulFilt);
-    CAN.init_Filt(3, std, ulFilt);
-    CAN.init_Filt(4, ext, ulFilt);
-    CAN.init_Filt(5, std, ulFilt);*/
+  // очистка масок
+  //CAN.init_Mask(0, std, 0x1FFFFFF0);
+  CAN.init_Mask(0, std, 0x0);
+  CAN.init_Mask(1, std, 0x0);
 
   // подключить обработчик прерывания о поступлении данных по спадающему уровню сигнала
   attachInterrupt(0, CANInterrupt, FALLING);
@@ -214,7 +219,7 @@ void serialEvent()
     // пакет собран и будет отправлен через SendCANFrame()
     if (comFrameStep == 17)
     {
-      if (CAN.sendMsgBuf(testFrame.ID, 0, testFrame.Length, testFrame.Data, true) == CAN_OK)
+      if (CAN.sendMsgBuf(testFrame.ID, 0, 0, testFrame.Length, testFrame.Data, true) == CAN_OK)
       {
         // отправилось без ошибок
         comFrameStep = 0;
