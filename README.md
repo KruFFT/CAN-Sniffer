@@ -1,4 +1,7 @@
 # CAN Sniffer
+
+Статья о проекте: https://habr.com/ru/post/479672/
+
 Код для Arduino и ESP8266.
 
 Тестировалось на Arduino UNO, Arduino Nano, ESP-12F (совместимый с NodeMCU 1.0), ESP8266 (D1 mini). Для Arduino работает передача через последовательный порт. Для ESP работает передача данных через последовательный интерфейс и Wi-Fi.
