@@ -1,42 +1,47 @@
-// Версия 2.0
+// Версия 2.1
 
-// 2022.07.02 версия 2.0 - добавлена поддержка ESP8266 и Wi-Fi
-// 2022.03.12 версия 1.2 - обновление библиотеки CAN-BUS Shield до версии 2.3.1
+// 2024.06.15 версия 2.1 - используется библиотека CAN-BUS Shield by Seeed Studio версии 2.3.3
+//                       - используется библиотека ArduinoSTL by Mike Matera 1.3.3 (необходимо исправление: https://github.com/mike-matera/ArduinoSTL/issues/95)
+//                       - добавлен интервал времени между пакетами в мс
+// 2022.07.02 версия 2.0 - добавлена поддержка ESP и Wi-Fi
+// 2022.03.12 версия 1.2 - обновление библиотеки CAN-BUS Shield by Seeed Studio до версии 2.3.1
 // 2020.06.13 версия 1.1 - добавил очистку фильтров в setup()
 
 // Перед сборкой необходимо выбрать конфигурацию убрав соответствующий комментарий:
-// ATMEL328 - для Arduino
-// ESP8266  - для ESP
-// Так же выбрать режим: для Arduino будет работать COM, для ESP оба варианта COM/WIRELESS
+// AVR - для Arduino
+// ESP - для ESP
+// Так же выбрать режим: для Arduino будет работать SERIAL, для ESP оба варианта SERIAL/WIRELESS
 
 // Внимание: выбрать конфигурацию
-#define ATMEL328
-//#define ESP8266
+#define AVR
+//#define ESP
 
 // Внимание: объявить необходимый режим работы
-#define COM
+#define SERIAL
 //#define WIRELESS
 
 // Если необходима отправка тестовых данных
 //#define TEST
 
 #ifdef TEST
-    #define TEST_INTERVAL 10
-    uint32_t testCounter = millis();
+    #define TEST_INTERVAL 5
+    uint32_t testTime = millis();
     uint8_t  testInc = 0;
     uint8_t  testDec = 255;
 #endif
 
 #include <SPI.h>
 #include <mcp2515_can.h>
+#include <ArduinoSTL.h>
+#include <map>
 
 #ifdef WIRELESS
-    #include <ESP8266WiFi.h>
+    #include <ESPWiFi.h>
     #include <WiFiUdp.h>
 
     // настройки точки доступа Wi-Fi
-    const char* ssid     = "CAR";                   // название беспроводной сети
-    const char* password = "1357924680";            // пароль к сети
+    const char* ssid       = "CAR";                 // название беспроводной сети
+    const char* password   = "1357924680";          // пароль к сети
     const uint16_t udpPort = 0xAA55;                // номер порта для обмена данными
     WiFiUDP UDP;                                    // UDP-сокет
 
@@ -46,8 +51,8 @@
     uint8_t  udpInBuffer[UDP_BUFFER_SIZE] = { 0 };  // буфер приёма пакета от компьютера
 #endif
 
-#ifdef ATMEL328
-    // Для ATMEL (Arduino) шилд подключен следущим образом:
+#ifdef AVR
+    // Для AVR (Arduino) шилд подключен следущим образом:
     // CS   - D10
     // MISO - D12
     // MOSI - D11
@@ -58,8 +63,8 @@
     #define CAN_CS 10   // сигнал CS на D10
 #endif
 
-#ifdef ESP8266
-    // Для ESP8266 шилд подключен следующим образом:
+#ifdef ESP
+    // Для ESP шилд подключен следующим образом:
     // INT  - GPIO5  (D1)
     // SCK  - GPIO14 (D5)
     // MOSI - GPIO13 (D7)
@@ -75,32 +80,36 @@
 // структура хранения данных CAN-пакета
 struct CANFrame
 {
-    uint32_t ID;        // идентификатор пакета
-    uint8_t  Length;    // длина данных
-    uint8_t  Data[8];   // сами данные
+    uint32_t id;        // идентификатор пакета
+    uint16_t interval;  // интервал между пакетами
+    uint8_t  length;    // длина данных
+    uint8_t  data[8];   // сами данные
 };
 
 // структура хранения данных отправляемых в последовательный порт или через Wi-Fi
 struct OutCANFrame
 {
-    uint32_t Signature = SIGNATURE;
-    CANFrame Frame;
+    uint32_t signature = SIGNATURE;
+    CANFrame frame;
 };
 
-OutCANFrame outCANFrame;            // буфер отправки данных в COM-порт или в буфер передачи через Wi-Fi
+OutCANFrame outCANFrame;            // буфер отправки данных в SERIAL-порт или в буфер передачи через Wi-Fi
 CANFrame    inCANFrame  = { 0 };    // принятый из последовательного порта или через Wi-Fi пакет для отправки в CAN-шину
 
-#ifdef COM
+#ifdef SERIAL
     CANFrame comInFrame = { 0 };    // буфер приёма пакета от компьютера
-    uint8_t  comInFrameStep = 0;    // переменная стадии обработки входищих данных из COM-порта
+    uint8_t  comInFrameStep = 0;    // переменная стадии обработки входищих данных из SERIAL-порта
 #endif
 
 // переменные для замера различных скоростных параметров
 uint16_t counterFPS  = 0;           // CAN-пакеты в секунду
 uint16_t counterBPS  = 0;           // байты в секунду
-uint32_t counterTime = millis();
+uint32_t counterTime = millis();    // счётчик времени для подсчёта колечиства CAN-пакетов и байтов в секунду
 
-// флаг для обработки прерывания поступления данных из CAN-шины и объявление CAN-шины
+// словарь интервалов между CAN-пакетами
+std::map<uint32_t, uint32_t> canFramesTimings;
+
+// флаг для обработки прерывания поступления данных из CAN-шины и инициализация CAN-протокола
 volatile bool canDataReceived = false;
 mcp2515_can CAN(CAN_CS);
 
@@ -109,7 +118,7 @@ mcp2515_can CAN(CAN_CS);
 //###################################################################################################################################
 void setup()
 {
-    #ifdef COM
+    #ifdef SERIAL
         Serial.begin(500000);
         
 		// Для плат с аппаратным USB нужно ждать инициализации Serial
@@ -160,7 +169,7 @@ void setup()
 //###################################################################################################################################
 // Обработчик прерывания поступивших данных
 //###################################################################################################################################
-#ifdef ESP8266
+#ifdef ESP
     ICACHE_RAM_ATTR
 #endif
 void CANInterrupt()
@@ -173,77 +182,77 @@ void CANInterrupt()
 //###################################################################################################################################
 void loop()
 {
-    uint32_t currentTime = millis();
-
     #ifdef TEST
-        if (currentTime - testCounter >= TEST_INTERVAL)
+        uint32_t currentTime = millis();
+        
+        if (currentTime - testTime >= TEST_INTERVAL)
         {
-            testCounter = currentTime;
-
+            testTime = currentTime;
             testInc++;
             testDec--;
-            
-            outCANFrame.Frame.ID = 0xABC;
-            outCANFrame.Frame.Length = 8;
-            outCANFrame.Frame.Data[0] = 0x11;
-            outCANFrame.Frame.Data[1] = testInc;
-            outCANFrame.Frame.Data[2] = 0x22;
-            outCANFrame.Frame.Data[3] = testDec;
-            outCANFrame.Frame.Data[4] = 0x33;
-            outCANFrame.Frame.Data[5] = testInc;
-            outCANFrame.Frame.Data[6] = 0x44;
-            outCANFrame.Frame.Data[7] = testDec;
-            
-            canDataReceived = true;
-        }
-    #endif
-    
-    // если в CAN-буфере есть данные...
-    if (canDataReceived)
-    {
-        // сбросить флаг данных в буфере
-        canDataReceived = false;
+            // заполнение пакета случайными данными
+            outCANFrame.frame.id       = 0xABC;
+            outCANFrame.frame.interval = TEST_INTERVAL;
+            outCANFrame.frame.length   = 8;
+            outCANFrame.frame.data[0]  = 0x11;
+            outCANFrame.frame.data[1]  = testInc;
+            outCANFrame.frame.data[2]  = 0x22;
+            outCANFrame.frame.data[3]  = testDec;
+            outCANFrame.frame.data[4]  = 0x33;
+            outCANFrame.frame.data[5]  = testInc;
+            outCANFrame.frame.data[6]  = 0x44;
+            outCANFrame.frame.data[7]  = testDec;
 
-    #ifndef TEST
-        while (CAN.checkReceive() == CAN_MSGAVAIL)
-    #endif
+            sendPacketToPC();
+
+            // замеры скоростных параметров
+            calculateSpeed(currentTime);
+
+        }
+  #else
+        // если в CAN-буфере есть данные...
+        if (canDataReceived)
         {
-            // чтение данных в буфер
-        #ifndef TEST
-            if (CAN.readMsgBuf(&outCANFrame.Frame.Length, outCANFrame.Frame.Data) == CAN_OK)
-        #endif
+            // сбросить флаг данных в буфере
+            canDataReceived = false;
+
+            while (CAN.checkReceive() == CAN_MSGAVAIL)
             {
-                // получение идентификатора пакета (достоверный только после чтения сообщения в буфер)
-            #ifndef TEST
-                outCANFrame.Frame.ID = CAN.getCanId();
-            #endif
-                sendPacketToPC();            
-			
-                // замеры скоростных параметров
-                if (currentTime - counterTime >= 1000)
+                // чтение данных из буфера
+                if (CAN.readMsgBuf(&outCANFrame.frame.length, outCANFrame.frame.data) == CAN_OK)
                 {
-                    counterTime = currentTime;
-                    outCANFrame.Frame.ID = 0;
-                    outCANFrame.Frame.Length = 4;
-                    // при копировании little-endian, вместо big-endian, поэтому надо побайтово делать
-                    // количество пакетов в секунду, примерная скорость около 745 пакетов в секунду
-                    outCANFrame.Frame.Data[0] = highByte(counterFPS);  // counterFPS >> 8 & 0xFF;
-                    outCANFrame.Frame.Data[1] = lowByte(counterFPS);   // counterFPS & 0xFF;
-                    // количество байтов в секунду, примерная скорость около 9200 байтов в секунду
-                    outCANFrame.Frame.Data[2] = highByte(counterBPS);  // counterBPS >> 8 & 0xFF;
-                    outCANFrame.Frame.Data[3] = lowByte(counterBPS);   // counterBPS & 0xFF;
+                    // получение идентификатора пакета (достоверный только после чтения сообщения из буфера)
+                    outCANFrame.frame.id = CAN.getCanId();
+
+                    // вычисление интервалов между CAN-пакетами
+                    uint32_t currentTime = millis();
+                    uint32_t prevTime = canFramesTimings[outCANFrame.frame.id];
+                    if (prevTime > 0)
+                    {
+                        uint32_t interval = currentTime - canFramesTimings[outCANFrame.frame.id];
+                        if (interval > 65535)
+                        {
+                            outCANFrame.frame.interval = 0;
+                        }
+                        else
+                        {
+                            outCANFrame.frame.interval = (uint16_t)interval;
+                        }                        
+                    }
+                    else
+                    {
+                        outCANFrame.frame.interval = 0;
+                    }
+                    canFramesTimings[outCANFrame.frame.id] = currentTime;
 
                     sendPacketToPC();
-                    
-                    counterFPS = 0;
-                    counterBPS = 0;
-                }
 
-                counterFPS++;
-                counterBPS += (5 + outCANFrame.Frame.Length);
+                    // замеры скоростных параметров
+                    calculateSpeed(currentTime);
+                }
             }
         }
-    }
+    #endif
 
     #ifdef WIRELESS
         receivePacket();
@@ -256,13 +265,42 @@ void loop()
 }
 
 //###################################################################################################################################
+// Подсчёт скоростных показателей CAN-пакетов
+//###################################################################################################################################
+void calculateSpeed(uint32_t currentTime)
+{
+    if (currentTime - counterTime >= 1000)
+    {
+        counterTime = currentTime;
+        outCANFrame.frame.id = 0;
+        outCANFrame.frame.length = 4;
+        // при копировании little-endian, вместо big-endian, поэтому надо побайтово делать
+        // количество пакетов в секунду, примерная скорость около 745 пакетов в секунду
+        outCANFrame.frame.data[0] = highByte(counterFPS);  // counterFPS >> 8 & 0xFF;
+        outCANFrame.frame.data[1] = lowByte(counterFPS);   // counterFPS & 0xFF;
+        // количество байтов в секунду, примерная скорость около 9200 байтов в секунду
+        outCANFrame.frame.data[2] = highByte(counterBPS);  // counterBPS >> 8 & 0xFF;
+        outCANFrame.frame.data[3] = lowByte(counterBPS);   // counterBPS & 0xFF;
+
+        sendPacketToPC();
+        
+        counterFPS = 0;
+        counterBPS = 0;
+    }
+
+    counterFPS++;
+    counterBPS += (5 + outCANFrame.frame.length);
+}
+
+//###################################################################################################################################
 // Отправка полученного CAN-пакета в последовательный порт или Wi-Fi
 //###################################################################################################################################
 void sendPacketToPC()
 {
-    size_t dataLength = 9 + outCANFrame.Frame.Length;
+    // сигнатура (4 байта) + ID пакета (4 байта) + интервал (2 байта) + длина (1 байт) = 11 байт
+    size_t dataLength = 11 + outCANFrame.frame.length;
     
-    #ifdef COM
+    #ifdef SERIAL
         Serial.write((uint8_t*)&outCANFrame, dataLength);
     #endif
 
@@ -301,7 +339,7 @@ void receivePacket()
             // если принятые данные распарсились, то в inCANFrame будет принятый пакет
             if (parseBuffer(udpInBuffer, length))
             {
-                if (CAN.sendMsgBuf(inCANFrame.ID, 0, inCANFrame.Length, inCANFrame.Data) == CAN_OK)
+                if (CAN.sendMsgBuf(inCANFrame.id, 0, inCANFrame.length, inCANFrame.data) == CAN_OK)
                 {
                     // отправилось без ошибок
                 }
@@ -322,13 +360,13 @@ bool parseBuffer(uint8_t* receivedData, size_t length)
         if (*(uint32_t*)receivedData == SIGNATURE)
         {
             receivedData += 4;
-            inCANFrame.ID = *(uint32_t*)receivedData;
+            inCANFrame.id = *(uint32_t*)receivedData;
             receivedData += 4;
-            inCANFrame.Length = *receivedData;
+            inCANFrame.length = *receivedData;
             receivedData++;
-            for (size_t i = 0; i < inCANFrame.Length; i++)
+            for (size_t i = 0; i < inCANFrame.length; i++)
             {
-                inCANFrame.Data[i] = *receivedData++;
+                inCANFrame.data[i] = *receivedData++;
             }
             return true;
         }
@@ -347,7 +385,7 @@ void MySerialEvent()
 
     int nextByte;
 
-    // чтение из COM-порта, пока там есть данные
+    // чтение из SERIAL-порта, пока там есть данные
     while (Serial.available())
     {
         /*
@@ -376,7 +414,7 @@ void MySerialEvent()
             // получение ID-пакета
             case 4 ... 7:
                 nextByte = Serial.read();
-                *((uint8_t*)&comInFrame.ID + comInFrameStep - 4) = (uint8_t)nextByte;
+                *((uint8_t*)&comInFrame.id + comInFrameStep - 4) = (uint8_t)nextByte;
                 comInFrameStep++;
                 break;
     
@@ -385,7 +423,7 @@ void MySerialEvent()
                 nextByte = Serial.read();
                 if (nextByte > 0 && nextByte <= 8)
                 {
-                    comInFrame.Length = (uint8_t)nextByte;
+                    comInFrame.length = (uint8_t)nextByte;
                     comInFrameStep++;
                 }
                 else
@@ -394,10 +432,10 @@ void MySerialEvent()
     
             // получение непосредственно самих данных пакета
             case 9 ... 16:
-                if (comInFrameStep - 9 < comInFrame.Length)
+                if (comInFrameStep - 9 < comInFrame.length)
                 {
                     nextByte = Serial.read();
-                    comInFrame.Data[comInFrameStep - 9] = (uint8_t)nextByte;
+                    comInFrame.data[comInFrameStep - 9] = (uint8_t)nextByte;
                     comInFrameStep++;
                 }
                 else
@@ -409,23 +447,23 @@ void MySerialEvent()
         if (comInFrameStep == 17)
         {
             comInFrameStep = 0;
-            if (CAN.sendMsgBuf(comInFrame.ID, 0, 0, comInFrame.Length, comInFrame.Data, true) == CAN_OK)
+            if (CAN.sendMsgBuf(comInFrame.id, 0, 0, comInFrame.length, comInFrame.data, true) == CAN_OK)
             {
                 // отправилось без ошибок
             }
             #ifdef TEST
-                outCANFrame.Frame = comInFrame;
-                outCANFrame.Frame.ID = 0x7E8;
-                outCANFrame.Frame.Length = 8;
-                outCANFrame.Frame.Data[0]++;
-                outCANFrame.Frame.Data[1]++;
-                outCANFrame.Frame.Data[2]++;
-                outCANFrame.Frame.Data[3]++;
-                outCANFrame.Frame.Data[4]++;
-                outCANFrame.Frame.Data[5]++;
-                outCANFrame.Frame.Data[6]++;
-                outCANFrame.Frame.Data[7]++;
-                size_t dataLength = 9 + outCANFrame.Frame.Length;
+                outCANFrame.frame = comInFrame;
+                outCANFrame.frame.id = 0x7E8;
+                outCANFrame.frame.interval = 0;
+                outCANFrame.frame.length = 8;
+                outCANFrame.frame.data[0]++;
+                outCANFrame.frame.data[1]++;
+                outCANFrame.frame.data[2]++;
+                outCANFrame.frame.data[3]++;
+                outCANFrame.frame.data[4]++;
+                outCANFrame.frame.data[5]++;
+                outCANFrame.frame.data[6]++;
+                outCANFrame.frame.data[7]++;
                 sendPacketToPC();
             #endif
         }
