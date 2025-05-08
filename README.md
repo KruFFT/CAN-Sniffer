@@ -5,6 +5,7 @@
 Код для **AVR (Arduino)** и **ESP8266** с использованием **PlatformIO**.
 
 [Статья о проекте](https://habr.com/ru/post/479672)
+
 [Приложение-компаньон для компьютера](https://github.com/KruFFT/wxCAN-Sniffer)
 
 ### Возможности
