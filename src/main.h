@@ -1,13 +1,18 @@
-// Версия 2.3
+// Версия 2.3.1
 
-// 2024.05.08 версия 2.3 - перевод статистики на little-endian, команды управления подключением, переход на VSCode + PlatformIO, рефакторинг кода
-// 2024.08.19 версия 2.2 - отказ от использования ArduinoSTL, переход на обычный массив
-// 2024.06.15 версия 2.1 - используется библиотека CAN-BUS Shield by Seeed Studio версии 2.3.3
-//                       - используется библиотека ArduinoSTL by Mike Matera 1.3.3 (необходимо исправление: https://github.com/mike-matera/ArduinoSTL/issues/95)
-//                       - добавлен интервал времени между пакетами в мс
-// 2022.07.02 версия 2.0 - добавлена поддержка ESP и Wi-Fi
-// 2022.03.12 версия 1.2 - обновление библиотеки CAN-BUS Shield by Seeed Studio до версии 2.3.1
-// 2020.06.13 версия 1.1 - добавил очистку фильтров в setup()
+// 2024.05.12 версия 2.3.1  - добавление команд управления в симулятор
+//                          - исправлена потеря одного CAN-пакета при отправки данных в сеть
+// 2024.05.08 версия 2.3    - перевод статистики на little-endian
+//                          - команды управления подключением
+//                          - переход на VSCode + PlatformIO
+//                          - рефакторинг кода
+// 2024.08.19 версия 2.2    - отказ от использования ArduinoSTL, переход на обычный массив
+// 2024.06.15 версия 2.1    - используется библиотека CAN-BUS Shield by Seeed Studio версии 2.3.3
+//                          - используется библиотека ArduinoSTL by Mike Matera 1.3.3 (необходимо исправление: https://github.com/mike-matera/ArduinoSTL/issues/95)
+//                          - добавлен интервал времени между пакетами в мс
+// 2022.07.02 версия 2.0    - добавлена поддержка ESP и Wi-Fi
+// 2022.03.12 версия 1.2    - обновление библиотеки CAN-BUS Shield by Seeed Studio до версии 2.3.1
+// 2020.06.13 версия 1.1    - добавил очистку фильтров в setup()
 
 #include <Arduino.h>
 #include <SPI.h>
@@ -58,6 +63,7 @@
     WiFiUDP UDP;                                    // UDP-сокет
 
     #define  UDP_BUFFER_SIZE 200                    // размер буфера пакетов
+    #define  UDP_BUFFER_MINIMUM 19                  // минимальный остаток буфера
     uint8_t  udpOutBuffer[UDP_BUFFER_SIZE] = { 0 }; // буфер накопления пакетов на отправку на компьютер
     uint8_t* udpOutBufferPosition = udpOutBuffer;   // указатель на этот буфер
     uint8_t  udpInBuffer[UDP_BUFFER_SIZE] = { 0 };  // буфер приёма пакета от компьютера
@@ -124,13 +130,14 @@ void CANInterrupt();
 
 // Параметры симулятора
 #ifdef MODE_SIMULATOR
-    #define  TEST_INTERVAL      5
-    #define  TEST_LONG_INTERVAL 10000
-    uint32_t testTime = millis();
-    uint32_t testLongTime = millis();
-    uint8_t  testLongInc = 0x00;
-    uint8_t  testInc = 0x00;
-    uint8_t  testLongDec = 0xFF;
-    uint8_t  testDec = 0xFF;
-    bool     extended = false;
+    #define  SIMULATOR_INTERVAL      5
+    #define  SIMULATOR_LONG_INTERVAL 10000
+    uint32_t simulatorTime = millis();
+    uint32_t simulatorLongTime = millis();
+    uint8_t  simulatorLongInc = 0x00;
+    uint8_t  simulatorInc = 0x00;
+    uint8_t  simulatorLongDec = 0xFF;
+    uint8_t  simulatorDec = 0xFF;
+    bool     simulatorExtended = false;
+    bool     simulatorConnected = false;
 #endif // MODE_SIMULATOR
