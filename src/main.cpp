@@ -1,4 +1,4 @@
-#include "main.h"
+﻿#include "main.h"
 
 // Инициализация
 void setup()
@@ -309,7 +309,7 @@ void receivePacketFromPC()
         else
         {
             #ifdef MODE_SIMULATOR
-                // немного изенить данные и отправить обратно в компьютер
+                // немного изменить данные и отправить обратно в компьютер
                 outCANFrame.frame = inCANFrame;
                 outCANFrame.frame.id += 8;
                 outCANFrame.frame.interval = 123;
@@ -356,11 +356,24 @@ void CANConnect(uint16_t speed)
         MCP_BITTIME_SETUP canSpeed;
         switch (speed)
         {
+            case 5:    canSpeed = CAN_5KBPS;    break;
+            case 10:   canSpeed = CAN_10KBPS;   break;
+            case 20:   canSpeed = CAN_20KBPS;   break;
+            case 25:   canSpeed = CAN_25KBPS;   break;
+            case 31:   canSpeed = CAN_31K25BPS; break;
+            case 33:   canSpeed = CAN_33KBPS;   break;
+            case 40:   canSpeed = CAN_40KBPS;   break;
+            case 50:   canSpeed = CAN_50KBPS;   break;
+            case 80:   canSpeed = CAN_80KBPS;   break;
+            case 83:   canSpeed = CAN_83K3BPS;  break;
+            case 95:   canSpeed = CAN_95KBPS;   break;
             case 100:  canSpeed = CAN_100KBPS;  break;
             case 125:  canSpeed = CAN_125KBPS;  break;
             case 200:  canSpeed = CAN_200KBPS;  break;
             case 250:  canSpeed = CAN_250KBPS;  break;
             case 500:  canSpeed = CAN_500KBPS;  break;
+            case 666:  canSpeed = CAN_666KBPS;  break;
+            case 800:  canSpeed = CAN_800KBPS;  break;
             case 1000: canSpeed = CAN_1000KBPS; break;
             default:   canSpeed = CAN_500KBPS;  break;
         }
